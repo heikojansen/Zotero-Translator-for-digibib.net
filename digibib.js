@@ -8,7 +8,7 @@
     "maxVersion":"",
     "priority":100,
     "inRepository":false,
-    "lastUpdated":"2012-03-07 12:00:00"
+    "lastUpdated":"2012-03-08 13:15:00"
 }
 
 /*
@@ -32,8 +32,6 @@
 */
 
 
-var articles, foundItems;
-
 /*
  * Check if the current page really is a page with results (hits) in it.
  * Also checks for the type of results because the different lists have
@@ -42,13 +40,10 @@ var articles, foundItems;
  **/
 function detectWeb(doc, url) {
     var namespace = doc.documentElement.namespaceURI;
-    var nsResolver = namespace
-        ? function(prefix) { if (prefix == "x") return namespace; else return null; }
-        : null;
 
     var indicator = doc.evaluate('/html/body//span[@id="zotero"]',
                                  doc,
-                                 nsResolver,
+                                 null,
                                  XPathResult.FIRST_ORDERED_NODE_TYPE,
                                  null )
                     .singleNodeValue;
@@ -74,23 +69,17 @@ function detectWeb(doc, url) {
  *
  **/
 function doWeb(doc, url) {
-    articles   = [];
-    foundItems = [];
-
     var namespace  = doc.documentElement.namespaceURI;
-    var nsResolver = namespace
-        ? function(prefix) { if (prefix == "x") return namespace; else return null; }
-        : null;
 
     var indicator = doc.evaluate('/html/body//span[@id="zotero"]',
                                  doc,
-                                 nsResolver,
+                                 null,
                                  XPathResult.ANY_TYPE,
                                  null )
                     .iterateNext();
     var indicator_class = indicator.getAttribute('class');
 
-    var items = new Object();
+    var availableItems = new Object();
 
     var conf = new Object;
     var type = '';
@@ -132,34 +121,34 @@ function doWeb(doc, url) {
           conf["item_url_xpath"]   = 'following-sibling::dd[3]//a[contains(@class,"js_formatExport")]';
           conf["url_trnsfrm"]      = function (hitUrl) { return hitUrl.replace(/SUBSERVICE=DIRECT_EXPORT/,'SUBSERVICE=FORMAT_EXPORT').replace(/FORMAT=TXT/,'FORMAT=MODS'); };
       }
-      items = _get_items_multi(doc, url, namespace, nsResolver, conf);
+      availableItems = _get_items_multi(doc, url, namespace, conf);
+
+	  Zotero.selectItems(availableItems, function (selectedItems) {
+		  if (!selectedItems) return true;
+
+		  var fetchThese = new Array();
+		  for (var i in selectedItems) {
+			  fetchThese.push(i);
+		  }
+
+		  Zotero.Utilities.doGet(fetchThese, importItem);
+		  Zotero.wait();
+	  });
     }
     else if ( indicator_class.match(/z_[a-z]*_single/) ) {
         var urlNode = doc.evaluate(
             '/html/body/div/div/div[@id="main"]//a[contains(@class,"js_formatExport")]',
             doc,
-            nsResolver,
+            null,
             XPathResult.FIRST_ORDERED_NODE_TYPE,
             null
         );
         if ( urlNode ) {
             var hitUrl = urlNode.singleNodeValue.href.replace(/SUBSERVICE=DIRECT_EXPORT/,'SUBSERVICE=FORMAT_EXPORT').replace(/FORMAT=TXT/,'FORMAT=MODS');
-            articles.push(hitUrl);
+			Zotero.Utilities.doGet(hitUrl, importItem);
             Zotero.wait();
-            _getAllItems();
-            return;
         }
     }
-
-    // Ask the user which hits she wants to import
-    items = Zotero.selectItems(items);
-    for ( var it in items ) {
-        articles.push(it);
-    }
-
-    // Import the selected hits to zotero
-    Zotero.wait();
-    _getAllItems();
 }
 
 
@@ -168,14 +157,14 @@ function doWeb(doc, url) {
  * guided by a set of XPaths addressing the relevant html nodes.
  *
  **/
-function _get_items_multi (doc, url, namespace, nsResolver, conf) {
+function _get_items_multi (doc, url, namespace, conf) {
     var myItems = new Object;
 
     // one or more lists in this page
     var listsSnapshot = doc.evaluate(
         conf["lists_xpath"],
         doc,
-        nsResolver,
+        null,
         XPathResult.ORDERED_NODE_SNAPSHOT_TYPE,
         null
     );
@@ -189,7 +178,7 @@ function _get_items_multi (doc, url, namespace, nsResolver, conf) {
         var listEntriesSnapshot = doc.evaluate(
             conf["item_xpath"],
             cur_list,
-            nsResolver,
+            null,
             XPathResult.ORDERED_NODE_SNAPSHOT_TYPE,
             null
         );
@@ -201,7 +190,7 @@ function _get_items_multi (doc, url, namespace, nsResolver, conf) {
             var titleNode = doc.evaluate(
                 conf["item_title_xpath"],
                 cur_entry,
-                nsResolver,
+                null,
                 XPathResult.FIRST_ORDERED_NODE_TYPE,
                 null
             );
@@ -216,7 +205,7 @@ function _get_items_multi (doc, url, namespace, nsResolver, conf) {
             var urlNode = doc.evaluate(
                 conf["item_url_xpath"],
                 cur_entry,
-                nsResolver,
+                null,
                 XPathResult.FIRST_ORDERED_NODE_TYPE,
                 null
             );
@@ -252,43 +241,15 @@ function _formatTitle (isSingleEntryList, num_a, num_b, text) {
 }
 
 /*
- * For all items selected by the user: retrieve and import them.
- * Uses "global" variables to save state.
+ * Import a record to Zotero using the standard MODS translator.
  *
  **/
-function _getAllItems () {
-    // check if there are still items to process
-    if ( articles.length == 0 ) {
-        for( var i in foundItems ) {
-            foundItems[i].complete();
-        }
-        Zotero.done();
-        return;
-    }
-
-    // second param is a callback that again calls _getAllItems recursively
-    _retrieveItem(articles.pop(), function(obj, item) {
-        foundItems.push(item);
-        _getAllItems();
-    });
-}
-
-/*
- * Fetch one item via HTTP/GET and import it to Zotero
- * using the standard MODS translator.
- * "callback" will save the imported item and recurse
- * to get the next one.
- *
- **/
-function _retrieveItem (url, callback) {
-    // retrieve URL
-    Zotero.Utilities.HTTP.doGet(url, function(mods) {
-        // import to zotero by relying on standard MODS translator
-        var translator = Zotero.loadTranslator("import");
-        translator.setTranslator("0e2235e7-babf-413c-9acf-f27cce5f059c"); // MODS-translator
-        translator.setHandler("itemDone", callback);
-        translator.setString(mods);
-        translator.translate();
-    });
+function importItem (mods, resp, url) {
+    // import to zotero by relying on standard MODS translator
+    var translator = Zotero.loadTranslator("import");
+    translator.setTranslator("0e2235e7-babf-413c-9acf-f27cce5f059c"); // MODS-translator
+    translator.setHandler("itemDone", function (obj, item) { item.complete() });
+    translator.setString(mods);
+    translator.translate();
 }
 
