@@ -248,8 +248,22 @@ function importItem (mods, resp, url) {
     // import to zotero by relying on standard MODS translator
     var translator = Zotero.loadTranslator("import");
     translator.setTranslator("0e2235e7-babf-413c-9acf-f27cce5f059c"); // MODS-translator
-    translator.setHandler("itemDone", function (obj, item) { item.complete() });
+    translator.setHandler("itemDone", cleanup);
     translator.setString(mods);
     translator.translate();
+}
+
+/*
+ * Custom cleanup for some data fields after the MODS translator
+ * has converted the records
+ *
+ **/
+function cleanup (obj, item) {
+	if ( item.archiveLocation ) {
+		item.callNumber = item.archiveLocation;
+		item.archiveLocation = "";
+	}
+
+	item.complete();
 }
 
