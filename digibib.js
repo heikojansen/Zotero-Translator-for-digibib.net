@@ -264,6 +264,12 @@ function cleanup (obj, item) {
 		item.archiveLocation = "";
 	}
 
+	for ( i in item.creators ) {
+		if ( item.creators[i].firstName ) {
+			item.creators[i].fieldMode = 2;
+		}
+	}
+
 	item.complete();
 }
 
